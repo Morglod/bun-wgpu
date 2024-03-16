@@ -46,6 +46,12 @@ import {
     WGPUTextureUsage,
     WGPU_NULL,
     makeCString,
+    makePointer,
+    makeWGPUColorTargetState,
+    makeWGPUFragmentState,
+    makeWGPURenderPassColorAttachment,
+    makeWGPUSurfaceCapabilities,
+    makeWGPUSurfaceConfiguration,
     readArray,
     readWGPUCompositeAlphaMode,
     readWGPUSurfaceCapabilities,
@@ -86,10 +92,7 @@ import {
     writeWGPUSurfaceConfiguration,
     writeWGPUSurfaceTexture,
 } from "./wgpu";
-import {
-    createShaderModuleWGSL,
-    wgpuSurfaceGetCurrentTextureUtil,
-} from "./wgpu-ext";
+import { createShaderModuleWGSL, wgpuSurfaceGetCurrentTextureUtil } from "./wgpu-ext";
 // without this import crashing
 import { gcAndSweep, heapSize, memoryUsage } from "bun:jsc";
 
@@ -101,13 +104,7 @@ const error_call = (error_code: number, description: string) => {
     });
 };
 
-let controls: GLFWkeyfun = (
-    window: glfwWindow,
-    key: number,
-    scancode: number,
-    action: number,
-    mods: number
-) => {
+let controls: GLFWkeyfun = (window: glfwWindow, key: number, scancode: number, action: number, mods: number) => {
     console.log("input", action, key);
     if (action == GLFW_PRESS) {
         if (key == GLFW_KEY_ESCAPE) {
@@ -141,12 +138,9 @@ async function main() {
     const adapter = wgpuRequestAdapterGLFW(instance, window, surface)!;
     const device = wgpuRequestDevice(adapter)!;
 
-    const surfaceCapabilitiesBuf = writeWGPUSurfaceCapabilities({});
-    wgpuSurfaceGetCapabilities(surface, adapter, surfaceCapabilitiesBuf.typed);
-    const surfaceCapabilities = readWGPUSurfaceCapabilities(
-        ptr(surfaceCapabilitiesBuf.typed),
-        0
-    );
+    const surfaceCapabilitiesBuf = makeWGPUSurfaceCapabilities({});
+    wgpuSurfaceGetCapabilities(surface, adapter, surfaceCapabilitiesBuf);
+    const surfaceCapabilities = readWGPUSurfaceCapabilities(ptr(surfaceCapabilitiesBuf), 0);
 
     const surfaceCapabilitiesFormats = readArray<WGPUTextureFormat>(
         surfaceCapabilities.formats,
@@ -171,6 +165,8 @@ async function main() {
 
     glfwShowWindow(window);
 
+    debugger;
+
     const shaderModule = createShaderModuleWGSL(
         device,
         "shader.wgsl",
@@ -188,9 +184,13 @@ async function main() {
         }`
     );
 
+    debugger;
+
     const pipelineLayout = wgpuDeviceCreatePipelineLayout(device, {
         // label: makeCString("pipeline_layout"),
     })!;
+
+    debugger;
 
     const renderPipeline = wgpuDeviceCreateRenderPipeline(device, {
         // label: makeCString("render_pipeline"),
@@ -199,15 +199,15 @@ async function main() {
             module: shaderModule,
             entryPoint: makeCString("vs_main"),
         },
-        fragment: writeWGPUFragmentState({
+        fragment: makeWGPUFragmentState({
             module: shaderModule,
             entryPoint: makeCString("fs_main"),
             targetCount: 1,
-            targets: writeWGPUColorTargetState({
+            targets: makeWGPUColorTargetState({
                 format: surfaceFormat,
                 writeMask: WGPUColorWriteMask.WGPUColorWriteMask_All,
-            }).typed,
-        }).typed,
+            }),
+        }),
         primitive: {
             topology: WGPUPrimitiveTopology.WGPUPrimitiveTopology_TriangleList,
         },
@@ -252,19 +252,14 @@ async function main() {
                 if (surfaceTexture.texture !== WGPU_NULL) {
                     wgpuTextureRelease(surfaceTexture.texture);
                 }
-                wgpuSurfaceConfigure(
-                    surface,
-                    writeWGPUSurfaceConfiguration(surfaceConfig).typed
-                );
+                wgpuSurfaceConfigure(surface, makeWGPUSurfaceConfiguration(surfaceConfig));
                 continue;
             }
             case WGPUSurfaceGetCurrentTextureStatus.WGPUSurfaceGetCurrentTextureStatus_OutOfMemory:
             case WGPUSurfaceGetCurrentTextureStatus.WGPUSurfaceGetCurrentTextureStatus_DeviceLost:
             case WGPUSurfaceGetCurrentTextureStatus.WGPUSurfaceGetCurrentTextureStatus_Force32:
                 // Fatal error
-                throw new Error(
-                    "get_current_texture status " + surfaceTexture.status
-                );
+                throw new Error("get_current_texture status " + surfaceTexture.status);
         }
 
         debugger;
@@ -277,24 +272,21 @@ async function main() {
 
         debugger;
 
-        const renderPassEncoder = wgpuCommandEncoderBeginRenderPass(
-            commandEncoder,
-            {
-                // label: makeCString("render_pass_encoder"),
-                colorAttachmentCount: 1,
-                colorAttachments: writeWGPURenderPassColorAttachment({
-                    view: frame,
-                    loadOp: WGPULoadOp.WGPULoadOp_Clear,
-                    storeOp: WGPUStoreOp.WGPUStoreOp_Store,
-                    clearValue: {
-                        r: 0.0,
-                        g: 1.0,
-                        b: 0.0,
-                        a: 1.0,
-                    },
-                }).typed,
-            }
-        );
+        const renderPassEncoder = wgpuCommandEncoderBeginRenderPass(commandEncoder, {
+            // label: makeCString("render_pass_encoder"),
+            colorAttachmentCount: 1,
+            colorAttachments: makeWGPURenderPassColorAttachment({
+                view: frame,
+                loadOp: WGPULoadOp.WGPULoadOp_Clear,
+                storeOp: WGPUStoreOp.WGPUStoreOp_Store,
+                clearValue: {
+                    r: 0.0,
+                    g: 1.0,
+                    b: 0.0,
+                    a: 1.0,
+                },
+            }),
+        });
 
         debugger;
 
@@ -304,8 +296,8 @@ async function main() {
 
         const commandBuffer = wgpuCommandEncoderFinish(commandEncoder, {})!;
 
-        const commandBufferArr = writePointer(commandBuffer);
-        wgpuQueueSubmit(queue, 1, ptr(commandBufferArr.typed));
+        const commandBufferArr = makePointer(commandBuffer);
+        wgpuQueueSubmit(queue, 1, ptr(commandBufferArr));
 
         wgpuSurfacePresent(surface);
 

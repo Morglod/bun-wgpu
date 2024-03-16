@@ -1,13 +1,4 @@
-import {
-    FFIType,
-    JSCallback,
-    dlopen,
-    ptr,
-    Pointer as BunPointer,
-    Pointer,
-    read,
-    CString,
-} from "bun:ffi";
+import { ptr, Pointer } from "bun:ffi";
 import {
     writeWGPUSurfaceTexture,
     type WGPUSurfaceTexture,
@@ -20,51 +11,31 @@ import {
     makeCString,
     WGPUShaderModuleWGSLDescriptor,
     readWGPUSurfaceTexture,
+    makeWGPUShaderModuleWGSLDescriptor,
+    makeWGPUSurfaceTexture,
+    makeWGPUShaderModuleDescriptor,
+    wgpuSurfaceGetCurrentTexture,
 } from "./wgpu";
 
-const platform = process.platform;
-let path: string = "";
-
-if (platform == "darwin") {
-    path = import.meta.dir + "/../deps/wgpu/libwgpu_native.dylib";
-} else {
-    throw new Error("not supported wgpu bindings platform");
-}
-
-const wgpulib = dlopen(path, {
-    wgpuSurfaceGetCurrentTexture: {
-        returns: FFIType.void,
-        args: [
-            // surface
-            FFIType.ptr,
-            FFIType.ptr,
-        ],
-    },
-}).symbols;
-
-export function wgpuSurfaceGetCurrentTextureUtil(
-    surface: Pointer
-): WGPUSurfaceTexture {
-    const buf = writeWGPUSurfaceTexture({});
-    wgpulib.wgpuSurfaceGetCurrentTexture(surface, buf.typed);
+export function wgpuSurfaceGetCurrentTextureUtil(surface: Pointer): WGPUSurfaceTexture {
+    const buf = makeWGPUSurfaceTexture({});
+    wgpuSurfaceGetCurrentTexture(surface, buf);
 
     const result: WGPUSurfaceTexture = readWGPUSurfaceTexture(ptr(buf), 0);
     return result;
 }
 
-export function createShaderModuleWGSL(
-    device: Pointer,
-    name: string,
-    sourceCode: string
-) {
-    return wgpuDeviceCreateShaderModule(device, {
+export function createShaderModuleWGSL(device: Pointer, name: string, sourceCode: string) {
+    const sd = makeWGPUShaderModuleDescriptor({
         label: makeCString(sourceCode),
-        nextInChain: writeWGPUShaderModuleWGSLDescriptor({
+        nextInChain: makeWGPUShaderModuleWGSLDescriptor({
             chain: {
                 next: WGPU_NULL,
                 sType: WGPUSType.WGPUSType_ShaderModuleWGSLDescriptor,
             },
             code: makeCString(sourceCode),
-        }).typed as any,
+        }) as any,
     });
+
+    return wgpuDeviceCreateShaderModule(device, sd);
 }

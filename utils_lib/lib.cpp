@@ -14,7 +14,7 @@
 
 extern "C" {
 
-WGPU_EXPORT WGPUSurface glfwGetWGPUSurface(WGPUInstance instance, GLFWwindow* window);
+FORCE_EXPORT WGPUSurface glfwGetWGPUSurface(WGPUInstance instance, GLFWwindow* window);
 
 void __ebal_export_cpp() {
     glfwGetWGPUSurface(0, 0);

@@ -72,7 +72,7 @@
 #include "../glfw/include/GLFW/glfw3native.h"
 #endif
 
-WGPUSurface glfwGetWGPUSurface(WGPUInstance instance, GLFWwindow* window) {
+FORCE_EXPORT WGPUSurface glfwGetWGPUSurface(WGPUInstance instance, GLFWwindow* window) {
 #if WGPU_TARGET == WGPU_TARGET_MACOS
     {
         id metal_layer = [CAMetalLayer layer];

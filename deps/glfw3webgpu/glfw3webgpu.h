@@ -30,6 +30,14 @@
 #ifndef _glfw3_webgpu_h_
 #define _glfw3_webgpu_h_
 
+
+#if defined(_WIN32)
+#define FORCE_EXPORT __declspec(dllexport)
+#else  // defined(_WIN32)
+#define FORCE_EXPORT __attribute__((visibility("default")))
+#endif  // defined(_WIN32)
+
+
 #include "../wgpu/webgpu.h"
 #include "../glfw/include/GLFW/glfw3.h"
 
@@ -40,7 +48,7 @@ extern "C" {
 /**
  * Get a WGPUSurface from a GLFW window.
  */
-WGPUSurface glfwGetWGPUSurface(WGPUInstance instance, GLFWwindow* window);
+FORCE_EXPORT WGPUSurface glfwGetWGPUSurface(WGPUInstance instance, GLFWwindow* window);
 
 #ifdef __cplusplus
 }

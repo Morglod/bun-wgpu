@@ -5,11 +5,7 @@ import { writeFileSync } from "fs";
 const HEADER_PATH = "./deps/wgpu/wgpu.h";
 
 export function getJsonAst(headerPath: string) {
-    return JSON.parse(
-        execSync(
-            "clang -Xclang -ast-dump=json -fsyntax-only " + headerPath
-        ).toString()
-    ).inner;
+    return JSON.parse(execSync("clang -Xclang -ast-dump=json -fsyntax-only " + headerPath).toString()).inner;
 }
 
 const wgpuAst = getJsonAst(HEADER_PATH);
@@ -30,9 +26,7 @@ function compileAndRunReadOut(code: string) {
 
 let __getSizeOfCache: Record<string, number> = {};
 if (await Bun.file("./generate-wgpu-bindings_sizeofcache.json").exists()) {
-    __getSizeOfCache = await Bun.file(
-        "./generate-wgpu-bindings_sizeofcache.json"
-    ).json();
+    __getSizeOfCache = await Bun.file("./generate-wgpu-bindings_sizeofcache.json").json();
 }
 
 function getSizeOf(headerPath: string, cTypeName: string): number {
@@ -58,16 +52,10 @@ function getSizeOf(headerPath: string, cTypeName: string): number {
 
 let __getOffsetOf: Record<string, number> = {};
 if (await Bun.file("./generate-wgpu-bindings_offsetofcache.json").exists()) {
-    __getOffsetOf = await Bun.file(
-        "./generate-wgpu-bindings_offsetofcache.json"
-    ).json();
+    __getOffsetOf = await Bun.file("./generate-wgpu-bindings_offsetofcache.json").json();
 }
 
-function getOffsetOf(
-    headerPath: string,
-    cTypeName: string,
-    fieldName: string
-): number {
+function getOffsetOf(headerPath: string, cTypeName: string, fieldName: string): number {
     const cacheName = `${headerPath}_qweqwe_${cTypeName}___q123213_${fieldName}`;
     if (cacheName in __getOffsetOf) {
         return __getOffsetOf[cacheName];
@@ -141,7 +129,6 @@ type TypedArrayPtr<T> = TypedArray & { __type: T, __const_ptr: any };
 
 const void_FFI = FFIType.void;
 const size_t_FFI = FFIType.uint64_t;
-
 const int32_t_FFI = FFIType.int32_t;
 const uint16_t_FFI = FFIType.uint16_t;
 const uint32_t_FFI = FFIType.uint32_t;
@@ -151,41 +138,22 @@ const float_FFI = FFIType.f32;
 
 export const WGPU_NULL = null as any as (Pointer & { __type: any, __const_ptr: any });
 
-export class DataViewExt<T = 1> extends DataView {
-    constructor(
-        buffer: ArrayBufferLike & { BYTES_PER_ELEMENT?: undefined },
-        byteOffset?: number | undefined,
-        byteLength?: number | undefined
-    ) {
-        super(buffer, byteOffset, byteLength);
-    }
-
-    get typed(): T extends 1 ? TypedArray : TypedArrayPtr<T> {
-        return new Uint8Array(this.buffer) as any;
-    }
-
-    subview(offset: number): DataViewExt {
-        return new DataViewExt(this.buffer, this.byteOffset + offset);
-    }
-
-    static alloc(size: number) {
-        return new DataViewExt(Buffer.alloc(size).buffer);
-    }
-}
-
-export function writePtrT<T>(x: PtrT<T>, dataView?: DataViewExt) {
-    if (!dataView) dataView = DataViewExt.alloc(8);
-    if (!x) return dataView;
-    if (typeof x === 'object') {
+export function writePtrT<T>(x: PtrT<T>, buffer: Buffer, offset: number) {
+    if (x && typeof x === 'object') {
         if ('BYTES_PER_ELEMENT' in x) x = ptr(x) as any;
         else throw new Error('got unknown object in writePtrT');
     }
-    dataView.setBigUint64(0, BigInt(x as any), true);
-    return dataView;
+    buffer.writeBigUint64LE(BigInt((x as any) || 0), offset);
 }
 
-export function writePointer(x: Pointer, dataView?: DataViewExt) {
-    return writePtrT(x as any, dataView);
+export function writePointer(x: Pointer, buffer: Buffer, offset: number) {
+    buffer.writeBigUint64LE(BigInt((x as any) || 0), offset);
+}
+
+export function makePointer(x: Pointer, buffer?: Buffer) {
+    if (!buffer) buffer = Buffer.alloc(8);
+    buffer.writeBigUint64LE(BigInt((x as any) || 0), 0);
+    return buffer;
 }
 
 export const writeConstPtrT = writePtrT;
@@ -196,14 +164,12 @@ export function readPtrT<T>(from: Pointer, offset: number): PtrT<T> {
 
 export const readConstPtrT = readPtrT;
 
-export function writeCString(x: CString, dataView?: DataViewExt): DataViewExt {
-    if (!dataView) dataView = DataViewExt.alloc(8);
-    if (!x) return dataView;
-    dataView.setBigUint64(0, BigInt(x.ptr), true);
-    return dataView;
+export function writeCString(x: CString, buffer: Buffer, offset: number) {
+    if (!x) return;
+    buffer.writeBigUint64LE(BigInt(x.ptr), offset);
 }
 
-export function writevoid(x: any, dataView?: DataViewExt): DataViewExt {
+export function writevoid(x: any, buffer: Buffer, offset: number) {
     throw new Error('called stub writevoid');
 }
 
@@ -215,7 +181,7 @@ export function makeCString(str: string) {
     return new BunCString(ptr(Buffer.from(str)));
 }
 
-export function readArray<T>(from: Pointer, offset: number, cTypeSize: number, itemReader: any, length: number | bigint): T[] {
+export function readArray<T>(from: Pointer | TypedArrayPtr<T>, offset: number, cTypeSize: number, itemReader: any, length: number | bigint): T[] {
     if (from === null) throw new Error('readArray null pointer');
     if (typeof from !== "number") from = ptr(from);
 
@@ -232,7 +198,58 @@ let outLibLines: string[] = [];
 let outWritersLines: string[] = [];
 let outReadersLines: string[] = [];
 
-outLibLines.push(`
+function outWriteLibLn(str: string = "", padding: number = 0) {
+    outLibLines.push("    ".repeat(padding) + str + "\n");
+}
+
+function outWriteWriterLn(str: string = "", padding: number = 0) {
+    outWritersLines.push("    ".repeat(padding) + str + "\n");
+}
+
+function outWriteReaderLn(str: string = "", padding: number = 0) {
+    outReadersLines.push("    ".repeat(padding) + str + "\n");
+}
+
+function outWriteSimpleWriter(outStream: string[] | undefined, typeName: string, typeSize: number, setFunc: string, argTransform?: string) {
+    const code = `
+    export const ${typeName}_FFI_size = ${typeSize};
+    export function write${typeName}(x: ${typeName}, buffer: Buffer, offset: number) {
+        buffer.${setFunc}(${argTransform || "x"}, offset);
+    }
+    export function make${typeName}(x: ${typeName}, buffer?: Buffer): TypedArrayPtr<${typeName}> {
+        if (!buffer) buffer = Buffer.alloc(${typeSize});
+        buffer.${setFunc}(${argTransform || "x"}, 0);
+        return buffer as any;
+    }
+    `;
+    if (outStream) outStream.push(code);
+    else outWriteLn(code);
+}
+
+function outWriteSimpleReader(typeName: string, readFunc: string, outTransform?: string) {
+    outWriteReaderLn(`export function read${typeName}(from: BunPointer, offset: number): ${typeName} {
+        let out = bunRead.${readFunc}(from!, offset);
+        ${outTransform ? `out = ${outTransform};\n` : ""}return out;
+    }`);
+}
+
+outWriteSimpleWriter(undefined, "size_t", 8, "writeBigUint64LE", "BigInt(x || 0)");
+outWriteSimpleWriter(undefined, "int32_t", 4, "writeInt32LE", "x || 0");
+outWriteSimpleWriter(undefined, "uint16_t", 2, "writeUint16LE", "x || 0");
+outWriteSimpleWriter(undefined, "uint32_t", 4, "writeUint32LE", "x || 0");
+outWriteSimpleWriter(undefined, "uint64_t", 4, "writeBigUint64LE", "BigInt(x)");
+outWriteSimpleWriter(undefined, "double", 4, "writeDoubleLE", "x || 0");
+outWriteSimpleWriter(undefined, "float", 4, "writeFloatLE", "x || 0");
+
+outWriteSimpleReader("size_t", "u64");
+outWriteSimpleReader("int32_t", "i32");
+outWriteSimpleReader("uint16_t", "u16");
+outWriteSimpleReader("uint32_t", "u32");
+outWriteSimpleReader("uint64_t", "u64");
+outWriteSimpleReader("double", "f64");
+outWriteSimpleReader("float", "f32");
+
+outWriteLibLn(`
 const platform = process.platform;
 let path: string = "";
 
@@ -246,59 +263,6 @@ if (platform == "darwin") {
 
 const wgpulib = dlopen(path, {
 `);
-
-function outWriteLibLn(str: string = "", padding: number = 0) {
-    outLibLines.push("    ".repeat(padding) + str + "\n");
-}
-
-function outWriteWriterLn(str: string = "", padding: number = 0) {
-    outWritersLines.push("    ".repeat(padding) + str + "\n");
-}
-
-function outWriteReaderLn(str: string = "", padding: number = 0) {
-    outReadersLines.push("    ".repeat(padding) + str + "\n");
-}
-
-function outWriteSimpleWriter(
-    typeName: string,
-    typeSize: number,
-    setFunc: string,
-    argTransform?: string
-) {
-    outWriteWriterLn(`export function write${typeName}(x: ${typeName}, dataView?: DataViewExt): DataViewExt<${typeName}> {
-        if (!dataView) dataView = DataViewExt.alloc(${typeSize});
-        if (!x) return dataView as any;
-        dataView.${setFunc}(0, ${argTransform || "x"}, true);
-        return dataView as any;
-    }`);
-}
-
-function outWriteSimpleReader(
-    typeName: string,
-    readFunc: string,
-    outTransform?: string
-) {
-    outWriteReaderLn(`export function read${typeName}(from: BunPointer, offset: number): ${typeName} {
-        let out = bunRead.${readFunc}(from!, offset);
-        ${outTransform ? `out = ${outTransform};\n` : ""}return out;
-    }`);
-}
-
-outWriteSimpleWriter("size_t", 8, "setBigUint64");
-outWriteSimpleWriter("int32_t", 4, "setInt32");
-outWriteSimpleWriter("uint16_t", 2, "setUint16");
-outWriteSimpleWriter("uint32_t", 4, "setUint32");
-outWriteSimpleWriter("uint64_t", 4, "setBigUint64", "BigInt(x)");
-outWriteSimpleWriter("double", 4, "setFloat64");
-outWriteSimpleWriter("float", 4, "setFloat32");
-
-outWriteSimpleReader("size_t", "u64");
-outWriteSimpleReader("int32_t", "i32");
-outWriteSimpleReader("uint16_t", "u16");
-outWriteSimpleReader("uint32_t", "u32");
-outWriteSimpleReader("uint64_t", "u64");
-outWriteSimpleReader("double", "f64");
-outWriteSimpleReader("float", "f32");
 
 function getIntegerLiteralStrOrRefName(ast: any): string {
     if (Array.isArray(ast)) {
@@ -351,9 +315,7 @@ function extractQualTypeOrPtr(qualType: string, ffi: string) {
         return "CString";
     }
 
-    const constPtrMatch = (qualType as string).match(
-        /^const (?:struct\s)?(\w+) \*$/
-    );
+    const constPtrMatch = (qualType as string).match(/^const (?:struct\s)?(\w+) \*$/);
 
     if (constPtrMatch) {
         if (ffi) return "Pointer";
@@ -376,11 +338,7 @@ let ptrTypeSymbols = new Set<string>();
 let funcTypeSymbols = new Set<string>();
 
 for (const statement of wgpuAst) {
-    if (
-        statement.loc?.includedFrom &&
-        !statement.loc.includedFrom.file.endsWith("wgpu.h") &&
-        !!statement.loc?.includedFrom
-    ) {
+    if (statement.loc?.includedFrom && !statement.loc.includedFrom.file.endsWith("wgpu.h") && !!statement.loc?.includedFrom) {
         continue;
     }
 
@@ -402,10 +360,7 @@ for (const statement of wgpuAst) {
             continue;
         }
 
-        if (
-            statement.inner[0].kind === "ElaboratedType" &&
-            statement.name === statement.inner[0].inner[0].decl.name
-        ) {
+        if (statement.inner[0].kind === "ElaboratedType" && statement.name === statement.inner[0].inner[0].decl.name) {
             continue;
         }
     }
@@ -425,10 +380,14 @@ for (const statement of wgpuAst) {
 
         outWriteLn("}");
         outWriteLn(`export const ${enumName}_FFI = FFIType.int32_t;`);
-        outWriteWriterLn(`export function write${enumName}(x: ${enumName}, dataView?: DataViewExt): DataViewExt<${enumName}> {
-            if (!dataView) dataView = DataViewExt.alloc(4);
-            dataView.setInt32(0, x, true);
-            return dataView as any;
+        outWriteLn(`export const ${enumName}_FFI_size = 4;`);
+        outWriteWriterLn(`export function write${enumName}(x: ${enumName}, buffer: Buffer, offset: number) {
+            buffer.writeInt32LE(x, offset);
+        }`);
+        outWriteWriterLn(`export function make${enumName}(x: ${enumName}, buffer?: Buffer): TypedArrayPtr<${enumName}> {
+            if (!buffer) buffer = Buffer.alloc(4);
+            buffer.writeInt32LE(x, 0);
+            return buffer as any;
         }`);
         outWriteReaderLn(`export function read${enumName}(from: Pointer, offset: number): ${enumName} {
             return bunRead.i32(from!, offset) as any as ${enumName};
@@ -445,7 +404,9 @@ for (const statement of wgpuAst) {
             const base = statement.type.qualType;
             outWriteLn(`export type ${name} = ${base};`);
             outWriteLn(`export const ${name}_FFI = ${base}_FFI;`);
+            outWriteLn(`export const ${name}_FFI_size = ${base}_FFI_size;`);
             outWriteWriterLn(`export const write${name} = write${base};`);
+            outWriteWriterLn(`export const make${name} = make${base};`);
             outWriteReaderLn(`export const read${name} = read${base};`);
             continue;
         }
@@ -464,18 +425,10 @@ for (const statement of wgpuAst) {
         // TODO: read* struct utils similar to write*
 
         outWriteLn("export type " + name + " = {");
-        outWriteWriterLn(
-            `export function write${name}(x: DeepPartial<${name}>, dataView?: DataViewExt): DataViewExt<${name}> {`
-        );
-        outWriteWriterLn(
-            `if (!dataView) dataView = DataViewExt.alloc(${bufferSize});`,
-            1
-        );
-        outWriteWriterLn(`if (!x) return dataView as any;`, 1);
+        outWriteWriterLn(`export const ${name}_FFI_size = ${bufferSize};`);
+        outWriteWriterLn(`export function write${name}(x: DeepPartial<${name}>, buffer: Buffer, offset: number) {`);
 
-        outWriteReaderLn(
-            `export function read${name}(from: Pointer, offset: number): ${name} {`
-        );
+        outWriteReaderLn(`export function read${name}(from: Pointer, offset: number): ${name} {`);
         outWriteReaderLn(`const out: ${name} = {} as any;`, 1);
 
         for (const item of statement.inner) {
@@ -496,24 +449,18 @@ for (const statement of wgpuAst) {
                     outWriteWriterLn(
                         `
                         if (isPtrOrConstPtr(x.${fieldName})) {
-                            write${refType}(x.${fieldName}! as any, dataView.subview(${fieldOffet}));
+                            write${refType}(x.${fieldName}! as any, buffer, offset + ${fieldOffet});
                         } else {
-                            write${basePtrT}(x.${fieldName}! as any, dataView.subview(${fieldOffet}));
+                            write${basePtrT}(x.${fieldName}! as any, buffer, offset + ${fieldOffet});
                         }
                     `,
                         1
                     );
                 } else {
-                    outWriteWriterLn(
-                        `write${refType}(x.${fieldName}! as any, dataView.subview(${fieldOffet}));`,
-                        1
-                    );
+                    outWriteWriterLn(`write${refType}(x.${fieldName}! as any, buffer, offset + ${fieldOffet});`, 1);
                 }
 
-                outWriteReaderLn(
-                    `out.${fieldName} = from ? read${refType}(from!, offset + ${fieldOffet}) as any : undefined!;`,
-                    1
-                );
+                outWriteReaderLn(`out.${fieldName} = from ? read${refType}(from!, offset + ${fieldOffet}) as any : undefined!;`, 1);
                 continue;
             }
 
@@ -527,28 +474,32 @@ for (const statement of wgpuAst) {
                 outWriteWriterLn(
                     `
                     if (isPtrOrConstPtr(x.${fieldName})) {
-                        write${qualType}(x.${fieldName}! as any, dataView.subview(${fieldOffet}));
+                        write${qualType}(x.${fieldName}! as any, buffer, offset + ${fieldOffet});
                     } else {
-                        write${basePtrT}(x.${fieldName}! as any, dataView.subview(${fieldOffet}));
+                        write${basePtrT}(x.${fieldName}! as any, buffer, offset + ${fieldOffet});
                     }
                 `,
                     1
                 );
             } else {
-                outWriteWriterLn(
-                    `write${qualType}(x.${fieldName}! as any, dataView.subview(${fieldOffet}));`,
-                    1
-                );
+                outWriteWriterLn(`write${qualType}(x.${fieldName}! as any, buffer, offset + ${fieldOffet});`, 1);
             }
 
-            outWriteReaderLn(
-                `out.${fieldName} = from ? read${qualType}(from!, offset + ${fieldOffet}) as any : undefined!;`,
-                1
-            );
+            outWriteReaderLn(`out.${fieldName} = from ? read${qualType}(from!, offset + ${fieldOffet}) as any : undefined!;`, 1);
             continue;
         }
 
-        outWriteWriterLn(`return dataView as any;\n}`, 1);
+        outWriteWriterLn(`}`, 1);
+        outWriteWriterLn(
+            `export function make${name}(x: DeepPartial<${name}>, buffer?: Buffer): TypedArrayPtr<${name}> {
+                if (!buffer) buffer = Buffer.alloc(${bufferSize});
+                if (!x) return buffer as any;
+                write${name}(x, buffer, 0);
+                return buffer as any;
+            }`,
+            1
+        );
+
         outWriteReaderLn(`return out;\n}`, 1);
         outWriteLn("};");
         outWriteLn(`export const ${name}_FFI = Pointer as PtrT<${name}>;`);
@@ -609,19 +560,10 @@ for (const statement of wgpuAst) {
 
         const returnType = extractPrintableType(returnTypeAst);
 
-        const argsTypes = argsAst.map(
-            (x: any, i: number) =>
-                (x.name || `arg${i}`) + ": " + extractPrintableType(x)
-        );
+        const argsTypes = argsAst.map((x: any, i: number) => (x.name || `arg${i}`) + ": " + extractPrintableType(x));
 
-        outWriteLn(
-            `export type ${declName} = (${argsTypes.join(
-                ", "
-            )}) => ${returnType};`
-        );
-        outWriteLn(
-            `export const ${declName}_FFI = Pointer as PtrT<${declName}>;`
-        );
+        outWriteLn(`export type ${declName} = (${argsTypes.join(", ")}) => ${returnType};`);
+        outWriteLn(`export const ${declName}_FFI = Pointer as PtrT<${declName}>;`);
         ptrTypeSymbols.add(declName);
         ptrTypeSymbols.add(`${declName}_FFI`);
         funcTypeSymbols.add(declName);
@@ -629,13 +571,11 @@ for (const statement of wgpuAst) {
         outWriteLn();
 
         outWriteWriterLn(`
-        export function write${declName}(x: ${declName}, dataView?: DataViewExt): DataViewExt<${declName}> {
-            if (!dataView) dataView = DataViewExt.alloc(8);
-            if (!x) return dataView as any;
+        export function write${declName}(x: ${declName}, buffer: Buffer, offset: number) {
             const jscb_ptr = new BunJSCallback(x, eval('${declName}_funcdef')).ptr;
-            dataView.setBigUint64(0, BigInt(jscb_ptr!), true);
-            return dataView as any;
+            buffer.writeBigInt64LE(BigInt(jscb_ptr!), offset);
         }`);
+        outWriteWriterLn(`export const ${declName}_FFI_size = 8;`);
 
         outWriteReaderLn(`
         export function read${declName}(from: Pointer, offset: number): ${declName} {
@@ -654,14 +594,8 @@ for (const statement of wgpuAst) {
     if (statement.kind === "FunctionDecl") {
         const declName = statement.name;
 
-        const returnType = extractQualTypeOrPtr(
-            statement.type.qualType.split("(")[0].trim(),
-            ""
-        );
-        const returnTypeFFI = extractQualTypeOrPtr(
-            statement.type.qualType.split("(")[0].trim(),
-            "_FFI"
-        );
+        const returnType = extractQualTypeOrPtr(statement.type.qualType.split("(")[0].trim(), "");
+        const returnTypeFFI = extractQualTypeOrPtr(statement.type.qualType.split("(")[0].trim(), "_FFI");
 
         outWriteLn(`export function ${declName} (`);
 
@@ -683,27 +617,18 @@ for (const statement of wgpuAst) {
                 if (item.kind === "ParmVarDecl") {
                     const paramName = item.name;
                     const type = extractQualTypeOrPtr(item.type.qualType, "");
-                    const typeFFI = extractQualTypeOrPtr(
-                        item.type.qualType,
-                        "_FFI"
-                    );
+                    const typeFFI = extractQualTypeOrPtr(item.type.qualType, "_FFI");
 
                     if (type.startsWith("ConstPtrT<")) {
                         const basePtrType = pickBasePtrTypeFromConstPtr(type);
-                        outWriteLn(
-                            `${paramName}: ${type} | DeepPartial<${basePtrType}>,`,
-                            1
-                        );
+                        outWriteLn(`${paramName}: ${type} | DeepPartial<${basePtrType}>,`, 1);
                     } else {
                         outWriteLn(`${paramName}: ${type},`, 1);
                     }
 
                     outWriteLibLn(`// ${paramName}`, 3);
 
-                    if (
-                        ptrTypeSymbols.has(type) ||
-                        ptrTypeSymbols.has(typeFFI)
-                    ) {
+                    if (ptrTypeSymbols.has(type) || ptrTypeSymbols.has(typeFFI)) {
                         outWriteLibLn(`FFIType.ptr,`, 3);
                     } else {
                         outWriteLibLn(`${typeFFI},`, 3);
@@ -732,61 +657,48 @@ for (const statement of wgpuAst) {
             } else {
                 out.write(`      let arg${argI} `);
 
-                if (
-                    funcTypeSymbols.has(argType) ||
-                    funcTypeSymbols.has(argTypeFFI)
-                ) {
-                    outWriteLn(
-                        `= new BunJSCallback(${argName}, eval('${argTypeFFI}_funcdef')).ptr;`,
-                        3
-                    );
+                if (funcTypeSymbols.has(argType) || funcTypeSymbols.has(argTypeFFI)) {
+                    outWriteLn(`= new BunJSCallback(${argName}, eval('${argTypeFFI}_funcdef')).ptr;`, 3);
                 }
                 {
                     out.write(";\n");
-                    outWriteLn(
-                        `
-                    if (${argName} && typeof ${argName} === 'object' && !('BYTES_PER_ELEMENT' in ${argName}) &&
-                        // @ts-ignore
-                        ${argTypeFFI} === FFIType.ptr
-                    ) {
-                        ${[
-                            // its typed buffer
-                            argType.startsWith("PtrT<") &&
-                                `arg${argI} = ${argName};`,
-                            argType.startsWith("ConstPtrT<") &&
-                                argType !== "ConstPtrT<void>" &&
-                                `arg${argI} = write${pickBasePtrTypeFromConstPtr(
-                                    argType
-                                )}(${argName} as any).typed as any;`,
-                            //     argType.startsWith("PtrT<") ||
-                            //     argType.startsWith("ConstPtrT<")
-                            //         ? `arg${argI} = ${argName};`
-                            //         : `
-                            // arg${argI} = write${argType}(${argName}).typed as any;`
-                            // }
-                        ]
-                            .filter(Boolean)
-                            .join("\n")}
+
+                    const ifPointerOrBufferCode = [
+                        // its typed buffer
+                        argType.startsWith("PtrT<") && `arg${argI} = ${argName};`,
+                        argType.startsWith("ConstPtrT<") &&
+                            argType !== "ConstPtrT<void>" &&
+                            `arg${argI} = make${pickBasePtrTypeFromConstPtr(argType)}(${argName} as any);`,
+                    ]
+                        .filter(Boolean)
+                        .join("\n")
+                        .trim();
+
+                    if (ifPointerOrBufferCode) {
+                        outWriteLn(
+                            `
+                        if (${argName} && typeof ${argName} === 'object' && !('BYTES_PER_ELEMENT' in ${argName}) &&
+                            // @ts-ignore
+                            ${argTypeFFI} === FFIType.ptr
+                        ) {
+                            ${ifPointerOrBufferCode}
+                        } else {
+                            arg${argI} = ${argName} as any;
+                        }
+                        `,
+                            3
+                        );
                     } else {
-                        arg${argI} = ${argName} as any;
+                        outWriteLn(`arg${argI} = ${argName} as any;`, 3);
                     }
-                    `,
-                        3
-                    );
-                    // out.write(`= write${argType}(${argName});\n`);
                 }
             }
         });
-        if (
-            funcTypeSymbols.has(returnType) ||
-            funcTypeSymbols.has(returnTypeFFI)
-        ) {
+        if (funcTypeSymbols.has(returnType) || funcTypeSymbols.has(returnTypeFFI)) {
             // TODO: return proc address
         }
         outWriteLn(
-            `const result = wgpulib.${declName}(${argsNames
-                .map((_, i) => `arg${i}!`)
-                .join(", ")});
+            `const result = wgpulib.${declName}(${argsNames.map((_, i) => `arg${i}!`).join(", ")});
             return result as any;`,
             3
         );
@@ -796,14 +708,10 @@ for (const statement of wgpuAst) {
     }
 
     // opque pointer type
-    if (
-        statement.kind === "TypedefDecl" &&
-        statement.type.qualType.startsWith("struct ") &&
-        statement.type.qualType.endsWith("Impl *")
-    ) {
+    if (statement.kind === "TypedefDecl" && statement.type.qualType.startsWith("struct ") && statement.type.qualType.endsWith("Impl *")) {
         outWriteLn(`export type ${statement.name} = Pointer;`);
         outWriteLn(`export const ${statement.name}_FFI = Pointer;`);
-        outWriteSimpleWriter(statement.name, 8, "setBigUint64", "BigInt(x!)");
+        outWriteSimpleWriter(outWritersLines, statement.name, 8, "writeBigUint64LE", "BigInt(x! || 0)");
         outWriteSimpleReader(statement.name, "ptr");
         continue;
     }
