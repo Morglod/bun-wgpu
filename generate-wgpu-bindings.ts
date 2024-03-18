@@ -1,4 +1,4 @@
-import { ClangTypeInfoCache, clangGetAstJson } from "bun-ffi-gen";
+import { ClangTypeInfoCache, clangClean, clangGetAstJson } from "bun-ffi-gen";
 import { CodeGen } from "bun-ffi-gen";
 import { parseClangAst } from "bun-ffi-gen";
 
@@ -26,6 +26,8 @@ const codeGen = new CodeGen({
     },
 });
 
+await clangTypeInfoCache.save();
+
 debugger;
 
 codeGen.generateAll(result);
@@ -36,3 +38,5 @@ if (codeGen.failedSymbols.size) {
 }
 
 codeGen.writeToFile("./src/wgpu.ts");
+await clangTypeInfoCache.save();
+clangClean();
