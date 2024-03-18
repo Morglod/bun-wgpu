@@ -1,12 +1,5 @@
 import { ptr } from "bun:ffi";
-import {
-    catchException,
-    glfwGetWGPUSurface,
-    wgpuRequestAdapter,
-    wgpuRequestAdapterGLFW,
-    wgpuRequestDevice,
-    wgpuRequestInstance,
-} from "../utils_lib/lib";
+import { catchException, glfwGetWGPUSurface, wgpuRequestAdapter, wgpuRequestAdapterGLFW, wgpuRequestDevice, wgpuRequestInstance } from "../utils_lib/lib";
 import {
     GLFW_CLIENT_API,
     GLFW_DOUBLEBUFFER,
@@ -44,18 +37,18 @@ import {
     WGPUSurfaceGetCurrentTextureStatus,
     WGPUTextureFormat,
     WGPUTextureUsage,
-    WGPU_NULL,
-    makeCString,
-    makePointer,
-    makeWGPUColorTargetState,
-    makeWGPUFragmentState,
-    makeWGPURenderPassColorAttachment,
-    makeWGPUSurfaceCapabilities,
-    makeWGPUSurfaceConfiguration,
-    readArray,
-    readWGPUCompositeAlphaMode,
-    readWGPUSurfaceCapabilities,
-    readWGPUTextureFormat,
+    NULL,
+    alloc_CString,
+    alloc_opaque_pointer,
+    alloc_WGPUColorTargetState,
+    alloc_WGPUFragmentState,
+    alloc_WGPURenderPassColorAttachment,
+    alloc_WGPUSurfaceCapabilities,
+    alloc_WGPUSurfaceConfiguration,
+    bunReadArray,
+    read_WGPUCompositeAlphaMode,
+    read_WGPUSurfaceCapabilities,
+    read_WGPUTextureFormat,
     wgpuAdapterEnumerateFeatures,
     wgpuCommandBufferRelease,
     wgpuCommandEncoderBeginRenderPass,
@@ -82,15 +75,14 @@ import {
     wgpuTextureCreateView,
     wgpuTextureRelease,
     wgpuTextureViewRelease,
-    writePointer,
-    writePtrT,
-    writeWGPUColorTargetState,
-    writeWGPUFragmentState,
-    writeWGPUInstanceDescriptor,
-    writeWGPURenderPassColorAttachment,
-    writeWGPUSurfaceCapabilities,
-    writeWGPUSurfaceConfiguration,
-    writeWGPUSurfaceTexture,
+    write_opaque_pointer,
+    write_WGPUColorTargetState,
+    write_WGPUFragmentState,
+    write_WGPUInstanceDescriptor,
+    write_WGPURenderPassColorAttachment,
+    write_WGPUSurfaceCapabilities,
+    write_WGPUSurfaceConfiguration,
+    write_WGPUSurfaceTexture,
 } from "./wgpu";
 import { createShaderModuleWGSL, wgpuSurfaceGetCurrentTextureUtil } from "./wgpu-ext";
 // without this import crashing
@@ -138,25 +130,13 @@ async function main() {
     const adapter = wgpuRequestAdapterGLFW(instance, window, surface)!;
     const device = wgpuRequestDevice(adapter)!;
 
-    const surfaceCapabilitiesBuf = makeWGPUSurfaceCapabilities({});
+    const surfaceCapabilitiesBuf = alloc_WGPUSurfaceCapabilities({});
     wgpuSurfaceGetCapabilities(surface, adapter, surfaceCapabilitiesBuf);
-    const surfaceCapabilities = readWGPUSurfaceCapabilities(ptr(surfaceCapabilitiesBuf), 0);
+    const surfaceCapabilities = read_WGPUSurfaceCapabilities(ptr(surfaceCapabilitiesBuf), 0);
 
-    const surfaceCapabilitiesFormats = readArray<WGPUTextureFormat>(
-        surfaceCapabilities.formats,
-        0,
-        4,
-        readWGPUTextureFormat,
-        surfaceCapabilities.formatCount
-    );
+    const surfaceCapabilitiesFormats = bunReadArray<WGPUTextureFormat>(surfaceCapabilities.formats, 0, 4, read_WGPUTextureFormat, surfaceCapabilities.formatCount);
 
-    const surfaceCapabilitiesAlphaModes = readArray<WGPUCompositeAlphaMode>(
-        surfaceCapabilities.alphaModes,
-        0,
-        4,
-        readWGPUCompositeAlphaMode,
-        surfaceCapabilities.alphaModeCount
-    );
+    const surfaceCapabilitiesAlphaModes = bunReadArray<WGPUCompositeAlphaMode>(surfaceCapabilities.alphaModes, 0, 4, read_WGPUCompositeAlphaMode, surfaceCapabilities.alphaModeCount);
 
     const surfaceFormat = surfaceCapabilitiesFormats[0];
     const alphaMode = surfaceCapabilitiesAlphaModes[0];
@@ -187,23 +167,23 @@ async function main() {
     debugger;
 
     const pipelineLayout = wgpuDeviceCreatePipelineLayout(device, {
-        // label: makeCString("pipeline_layout"),
+        // label: alloc_CString("pipeline_layout"),
     })!;
 
     debugger;
 
     const renderPipeline = wgpuDeviceCreateRenderPipeline(device, {
-        // label: makeCString("render_pipeline"),
+        // label: alloc_CString("render_pipeline"),
         layout: pipelineLayout,
         vertex: {
             module: shaderModule,
-            entryPoint: makeCString("vs_main"),
+            entryPoint: alloc_CString("vs_main"),
         },
-        fragment: makeWGPUFragmentState({
+        fragment: alloc_WGPUFragmentState({
             module: shaderModule,
-            entryPoint: makeCString("fs_main"),
+            entryPoint: alloc_CString("fs_main"),
             targetCount: 1,
-            targets: makeWGPUColorTargetState({
+            targets: alloc_WGPUColorTargetState({
                 format: surfaceFormat,
                 writeMask: WGPUColorWriteMask.WGPUColorWriteMask_All,
             }),
@@ -249,10 +229,10 @@ async function main() {
             case WGPUSurfaceGetCurrentTextureStatus.WGPUSurfaceGetCurrentTextureStatus_Outdated:
             case WGPUSurfaceGetCurrentTextureStatus.WGPUSurfaceGetCurrentTextureStatus_Lost: {
                 // Skip this frame, and re-configure surface.
-                if (surfaceTexture.texture !== WGPU_NULL) {
+                if (surfaceTexture.texture !== NULL) {
                     wgpuTextureRelease(surfaceTexture.texture);
                 }
-                wgpuSurfaceConfigure(surface, makeWGPUSurfaceConfiguration(surfaceConfig));
+                wgpuSurfaceConfigure(surface, alloc_WGPUSurfaceConfiguration(surfaceConfig));
                 continue;
             }
             case WGPUSurfaceGetCurrentTextureStatus.WGPUSurfaceGetCurrentTextureStatus_OutOfMemory:
@@ -264,18 +244,18 @@ async function main() {
 
         debugger;
 
-        const frame = wgpuTextureCreateView(surfaceTexture.texture, WGPU_NULL);
+        const frame = wgpuTextureCreateView(surfaceTexture.texture, NULL);
 
         const commandEncoder = wgpuDeviceCreateCommandEncoder(device, {
-            // label: makeCString("command_encoder"),
+            // label: alloc_CString("command_encoder"),
         });
 
         debugger;
 
         const renderPassEncoder = wgpuCommandEncoderBeginRenderPass(commandEncoder, {
-            // label: makeCString("render_pass_encoder"),
+            // label: alloc_CString("render_pass_encoder"),
             colorAttachmentCount: 1,
-            colorAttachments: makeWGPURenderPassColorAttachment({
+            colorAttachments: alloc_WGPURenderPassColorAttachment({
                 view: frame,
                 loadOp: WGPULoadOp.WGPULoadOp_Clear,
                 storeOp: WGPUStoreOp.WGPUStoreOp_Store,
@@ -296,8 +276,8 @@ async function main() {
 
         const commandBuffer = wgpuCommandEncoderFinish(commandEncoder, {})!;
 
-        const commandBufferArr = makePointer(commandBuffer);
-        wgpuQueueSubmit(queue, 1, ptr(commandBufferArr));
+        const commandBufferArr = alloc_opaque_pointer(commandBuffer);
+        wgpuQueueSubmit(queue, 1, ptr(commandBufferArr) as any);
 
         wgpuSurfacePresent(surface);
 

@@ -35,9 +35,7 @@ async function deleteFile(path: string) {
     rmSync(path);
 }
 
-function platformSwitch<T>(
-    mapping: Partial<Record<Platform, (() => T) | T>>
-): T {
+function platformSwitch<T>(mapping: Partial<Record<Platform, (() => T) | T>>): T {
     if (!(process.platform in mapping)) {
         throw new Error(`unsupported platform "${process.platform}"`);
     }
@@ -69,34 +67,45 @@ function archSwitch<T>(mapping: Partial<Record<Architecture, (() => T) | T>>) {
 
 console.log("install glfw");
 
-const glfwZipName =
-    "glfw-3.4.bin." +
-    platformSwitch({
-        darwin: "MACOS",
-        win32: () =>
-            archSwitch({
-                x64: "WIN64",
-            }),
-    });
+if (process.platform === "linux") {
+    console.log("installing glfw3 from source for linux");
+    console.log("install deps for glfw linux build: https://www.glfw.org/docs/latest/compile.html");
 
-await downloadFile(
-    `https://github.com/glfw/glfw/releases/download/3.4/${glfwZipName}.zip`,
-    `./deps/${glfwZipName}.zip`
-);
-if (CLEAN) {
-    rmSync(`./deps/${glfwZipName}`, { recursive: true, force: true });
+    await downloadFile(`https://github.com/glfw/glfw/releases/download/3.4/glfw-3.4.zip`, `./deps/glfw-3.4.zip`);
+    if (CLEAN) {
+        rmSync(`./deps/glfw-3.4`, { recursive: true, force: true });
+    }
+    await unzip(`./deps/glfw-3.4.zip`, "./deps");
+
+    execSync(`cmake -G "Unix Makefiles"`, { cwd: "./deps/glfw-3.4" });
+    execSync("make", { cwd: "./deps/glfw-3.4" });
+    execSync("make install", { cwd: "./deps/glfw-3.4" });
+} else {
+    const glfwZipName =
+        "glfw-3.4.bin." +
+        platformSwitch({
+            darwin: "MACOS",
+            win32: () =>
+                archSwitch({
+                    x64: "WIN64",
+                }),
+        });
+
+    await downloadFile(`https://github.com/glfw/glfw/releases/download/3.4/${glfwZipName}.zip`, `./deps/${glfwZipName}.zip`);
+    if (CLEAN) {
+        rmSync(`./deps/${glfwZipName}`, { recursive: true, force: true });
+    }
+    await unzip(`./deps/${glfwZipName}.zip`, "./deps");
+    if (existsSync("./deps/glfw")) rmSync("./deps/glfw", { recursive: true, force: true });
+    fsRenameSync(`./deps/${glfwZipName}`, "./deps/glfw");
+    if (DELETE_DOWNLOADED) await deleteFile(`./deps/${glfwZipName}.zip`);
 }
-await unzip(`./deps/${glfwZipName}.zip`, "./deps");
-if (existsSync("./deps/glfw"))
-    rmSync("./deps/glfw", { recursive: true, force: true });
-fsRenameSync(`./deps/${glfwZipName}`, "./deps/glfw");
-if (DELETE_DOWNLOADED) await deleteFile(`./deps/${glfwZipName}.zip`);
 
 // --------------------
 
 console.log("install wgpu");
 
-// https://github.com/gfx-rs/wgpu-native/releases/download/v0.19.3.1/wgpu-macos-aarch64-release.zip
+// https://github.com/gfx-rs/wgpu-native/releases/download/v0.19.3.1/
 
 const wgpuPlatformNameZip = platformSwitch({
     darwin: () =>
@@ -104,20 +113,26 @@ const wgpuPlatformNameZip = platformSwitch({
             arm64: "macos-aarch64",
             x64: "macos-x86_64",
         }),
+    linux: () =>
+        archSwitch({
+            arm64: "linux-aarch64",
+            x64: "linux-x86_64",
+        }),
+    win32: () =>
+        archSwitch({
+            x64: "windows-x86_64",
+        }),
 });
 
 const wgpuZipName = `wgpu-${wgpuPlatformNameZip}-release`;
 
-await downloadFile(
-    `https://github.com/gfx-rs/wgpu-native/releases/download/v0.19.3.1/${wgpuZipName}.zip`,
-    `./deps/${wgpuZipName}.zip`
-);
+await downloadFile(`https://github.com/gfx-rs/wgpu-native/releases/download/v0.19.3.1/${wgpuZipName}.zip`, `./deps/${wgpuZipName}.zip`);
 
 if (CLEAN) {
     rmSync(`./deps/${wgpuZipName}`, { recursive: true, force: true });
 }
 await unzip(`./deps/${wgpuZipName}.zip`, "./deps/wgpu");
-if (DELETE_DOWNLOADED) await deleteFile(`./deps/${glfwZipName}.zip`);
+if (DELETE_DOWNLOADED) await deleteFile(`./deps/${wgpuZipName}.zip`);
 
 // --------------------
 
